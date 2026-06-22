@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { formatCurrency, formatDate, type Receipt } from "../lib/receipts";
 import { StatusBadge } from "./status-badge";
 
@@ -25,7 +26,9 @@ export function ReceiptTable({ receipts }: ReceiptTableProps) {
               <tr key={receipt.id}>
                 <td className="px-5 py-4 font-semibold text-slate-600">{formatDate(receipt.date)}</td>
                 <td className="px-5 py-4">
-                  <p className="font-black text-slate-950">{receipt.merchant}</p>
+                  <Link className="font-black text-slate-950 underline-offset-4 hover:underline" href={`/receipts/${receipt.id}`}>
+                    {receipt.merchant}
+                  </Link>
                   <p className="mt-1 text-xs text-slate-500">Confidence {(receipt.confidence * 100).toFixed(0)}%</p>
                 </td>
                 <td className="px-5 py-4 text-slate-600">{receipt.category}</td>
@@ -43,7 +46,9 @@ export function ReceiptTable({ receipts }: ReceiptTableProps) {
           <article className="p-4" key={receipt.id}>
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="font-black text-slate-950">{receipt.merchant}</p>
+                <Link className="font-black text-slate-950 underline-offset-4 hover:underline" href={`/receipts/${receipt.id}`}>
+                  {receipt.merchant}
+                </Link>
                 <p className="mt-1 text-sm text-slate-500">{formatDate(receipt.date)}</p>
               </div>
               <p className="font-black text-slate-950">{formatCurrency(receipt.amount, receipt.currency)}</p>
