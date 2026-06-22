@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { StatusBadge } from "../../../components/status-badge";
 import { db, ensureReceiptsTable } from "../../../lib/db";
 import { formatCurrency, formatDate, type Receipt } from "../../../lib/receipts";
+import { ReceiptEditForm } from "./receipt-edit-form";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -147,6 +148,8 @@ export default async function ReceiptDetailPage({ params }: ReceiptDetailPagePro
           ) : null}
         </div>
       </section>
+
+      <ReceiptEditForm receipt={receipt} />
     </div>
   );
 }
