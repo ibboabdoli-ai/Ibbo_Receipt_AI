@@ -56,16 +56,13 @@ function cleanConfidence(value: unknown) {
 }
 
 function normalizeExtraction(value: Record<string, unknown>): ReceiptExtraction {
-  const category = cleanText(value.category, "Unknown");
-  const expenseType = cleanText(value.expense_type ?? value.expenseType, "unknown");
-
   return {
     date: cleanText(value.date, fallbackExtraction.date),
     merchant: cleanText(value.merchant, fallbackExtraction.merchant),
     amount: cleanNumber(value.amount, 0),
     currency: cleanText(value.currency, "SEK").toUpperCase(),
-    category,
-    expenseType,
+    category: cleanText(value.category, "Unknown"),
+    expenseType: cleanText(value.expense_type ?? value.expenseType, "unknown"),
     vatAmount: cleanNumber(value.vat_amount ?? value.vatAmount, null),
     paymentMethod: cleanText(value.payment_method ?? value.paymentMethod, ""),
     confidence: cleanConfidence(value.confidence),
@@ -87,63 +84,33 @@ export async function extractReceiptFromImage(input: {
   try {
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-    const response = await openai.responses.create({
-      model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
-      input: [
+    const completion = await openai.chat.completions.create({
+      model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+      temperature: 0,
+      max_tokens: 500,
+      response_format: { type: "json_object" },
+      messages: [
         {
           role: "user",
           content: [
             {
-              type: "input_text",
+              type: "text",
               text:
-                "Extract receipt data. Return JSON only. Use SEK if currency is unclear. Category must be one of: Food, Restaurant, Car, Health, Tools, Home, Software, Office, Travel, Business, Private, Unknown.",
+                "Extract data from this receipt image. Return only valid JSON with these keys: date, merchant, amount, currency, category, expense_type, vat_amount, payment_method, confidence, notes. Use SEK if currency is unclear. Use ISO date YYYY-MM-DD if possible. category must be one of: Food, Restaurant, Car, Health, Tools, Home, Software, Office, Travel, Business, Private, Unknown. expense_type must be business, private, or unknown. confidence must be 0-100.",
             },
             {
-              type: "input_image",
-              image_url: `data:${input.mimeType};base64,${input.imageBase64}`,
-              detail: "low",
+              type: "image_url",
+              image_url: {
+                url: `data:${input.mimeType};base64,${input.imageBase64}`,
+                detail: "low",
+              },
             },
           ],
         },
       ],
-      text: {
-        format: {
-          type: "json_schema",
-          name: "receipt_extraction",
-          strict: true,
-          schema: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-              date: { type: "string" },
-              merchant: { type: "string" },
-              amount: { type: ["number", "null"] },
-              currency: { type: "string" },
-              category: { type: "string" },
-              expense_type: { type: "string" },
-              vat_amount: { type: ["number", "null"] },
-              payment_method: { type: "string" },
-              confidence: { type: "number" },
-              notes: { type: "string" },
-            },
-            required: [
-              "date",
-              "merchant",
-              "amount",
-              "currency",
-              "category",
-              "expense_type",
-              "vat_amount",
-              "payment_method",
-              "confidence",
-              "notes",
-            ],
-          },
-        },
-      },
     });
 
-    const outputText = response.output_text;
+    const outputText = completion.choices[0]?.message?.content;
 
     if (!outputText) {
       return fallbackExtraction;
