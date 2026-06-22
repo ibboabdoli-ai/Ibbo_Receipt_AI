@@ -1,6 +1,7 @@
 import { put } from "@vercel/blob";
 import { NextResponse } from "next/server";
 import { db, ensureReceiptsTable } from "../../../lib/db";
+import { extractReceiptFromImage } from "../../../lib/extract-receipt";
 
 export const runtime = "nodejs";
 
@@ -206,28 +207,43 @@ async function createReceiptFromUpload(request: Request) {
 
   const id = crypto.randomUUID();
   const originalName = safeFileName(file.name || "receipt.jpg");
-  const blob = await put(`receipts/${id}-${originalName}`, file, {
-    access: "private",
-    addRandomSuffix: true,
+  const imageArrayBuffer = await file.arrayBuffer();
+  const imageBase64 = Buffer.from(imageArrayBuffer).toString("base64");
+
+  const blob = await put(
+    `receipts/${id}-${originalName}`,
+    new Blob([imageArrayBuffer], { type: file.type }),
+    {
+      access: "private",
+      addRandomSuffix: true,
+    },
+  );
+
+  const extraction = await extractReceiptFromImage({
+    imageBase64,
+    mimeType: file.type,
   });
 
-  const date = new Date().toISOString().slice(0, 10);
-  const notes = cleanText(formData.get("notes"), "Uploaded to Vercel Blob");
+  const userNotes = cleanText(formData.get("notes"), "");
+  const notes = userNotes
+    ? `${userNotes} | ${extraction.notes}`
+    : extraction.notes;
+  const status = extraction.confidence >= 70 ? "processed" : "needs_review";
 
   await insertReceipt({
     id,
-    date,
-    merchant: "Uploaded receipt",
-    amount: 0,
-    currency: "SEK",
-    category: "Unknown",
-    expenseType: "unknown",
-    vatAmount: null,
-    paymentMethod: "",
-    confidence: 0,
+    date: extraction.date,
+    merchant: extraction.merchant,
+    amount: extraction.amount,
+    currency: extraction.currency,
+    category: extraction.category,
+    expenseType: extraction.expenseType,
+    vatAmount: extraction.vatAmount,
+    paymentMethod: extraction.paymentMethod,
+    confidence: extraction.confidence,
     imageUrl: blob.url,
     notes,
-    status: "needs_review",
+    status,
   });
 
   return NextResponse.json(
@@ -235,18 +251,18 @@ async function createReceiptFromUpload(request: Request) {
       ok: true,
       receipt: {
         id,
-        date,
-        merchant: "Uploaded receipt",
-        amount: 0,
-        currency: "SEK",
-        category: "Unknown",
-        expense_type: "unknown",
-        vat_amount: null,
-        payment_method: "",
-        confidence: 0,
+        date: extraction.date,
+        merchant: extraction.merchant,
+        amount: extraction.amount,
+        currency: extraction.currency,
+        category: extraction.category,
+        expense_type: extraction.expenseType,
+        vat_amount: extraction.vatAmount,
+        payment_method: extraction.paymentMethod,
+        confidence: extraction.confidence,
         image_url: blob.url,
         notes,
-        status: "needs_review",
+        status,
       },
       blob: {
         url: blob.url,
