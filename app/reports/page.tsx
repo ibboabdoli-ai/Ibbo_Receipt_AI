@@ -9,6 +9,7 @@ export const runtime = "nodejs";
 type ReportReceipt = {
   amount: number;
   category: string;
+  expenseType: string;
   status: string;
 };
 
@@ -55,12 +56,13 @@ async function getReportReceipts(): Promise<ReportReceipt[]> {
   await ensureReceiptsTable();
 
   const result = await db.execute(
-    "SELECT amount, category, status FROM receipts ORDER BY created_at DESC LIMIT 500",
+    "SELECT amount, category, expense_type, status FROM receipts ORDER BY created_at DESC LIMIT 500",
   );
 
   return result.rows.map((row) => ({
     amount: toNumber(row.amount),
-    category: toText(row.category, "Unknown / Needs review"),
+    category: toText(row.category, "Unknown"),
+    expenseType: toText(row.expense_type, "unknown"),
     status: toText(row.status, "processed"),
   }));
 }
@@ -79,11 +81,12 @@ export default async function ReportsPage() {
   const categoryTotals = getCategoryTotals(receipts);
   const totalAmount = getTotalAmount(receipts);
   const topCategory = categoryTotals[0];
-  const unknownAmount = getTotalAmount(
-    receipts.filter(
-      (receipt) => receipt.category === "Unknown / Needs review" || receipt.status === "needs_review",
-    ),
+  const reviewReceipts = receipts.filter(
+    (receipt) => receipt.category === "Unknown" || receipt.status === "needs_review",
   );
+  const unknownAmount = getTotalAmount(reviewReceipts);
+  const businessAmount = getTotalAmount(receipts.filter((receipt) => receipt.expenseType === "business"));
+  const privateAmount = getTotalAmount(receipts.filter((receipt) => receipt.expenseType === "private"));
 
   return (
     <div className="space-y-7">
@@ -99,6 +102,9 @@ export default async function ReportsPage() {
         <StatCard helper="Total amount from live Turso receipts." label="Month total" value={formatCurrency(totalAmount)} />
         <StatCard helper="Largest live category." label="Top category" tone="amber" value={topCategory?.category ?? "None"} />
         <StatCard helper="Needs review before export." label="Review amount" tone="rose" value={formatCurrency(unknownAmount)} />
+        <StatCard helper="Receipts marked as business cost." label="Business total" value={formatCurrency(businessAmount)} />
+        <StatCard helper="Receipts marked as private cost." label="Private total" tone="amber" value={formatCurrency(privateAmount)} />
+        <StatCard helper="Receipts waiting for manual review." label="Review queue" tone="rose" value={`${reviewReceipts.length} receipts`} />
       </section>
 
       {errorMessage ? (
@@ -117,7 +123,7 @@ export default async function ReportsPage() {
             <CategoryList totals={categoryTotals} />
           ) : (
             <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-slate-600">
-              No receipt data saved yet. Create a test receipt from the upload page.
+              No receipt data saved yet. Upload a receipt image to start live reporting.
             </div>
           )}
         </div>
