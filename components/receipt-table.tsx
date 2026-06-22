@@ -19,6 +19,7 @@ export function ReceiptTable({ receipts }: ReceiptTableProps) {
               <th className="px-5 py-4">Type</th>
               <th className="px-5 py-4 text-right">Amount</th>
               <th className="px-5 py-4">Status</th>
+              <th className="px-5 py-4 text-right">Review</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -35,6 +36,14 @@ export function ReceiptTable({ receipts }: ReceiptTableProps) {
                 <td className="px-5 py-4 font-bold capitalize text-slate-600">{receipt.expense_type}</td>
                 <td className="px-5 py-4 text-right font-black text-slate-950">{formatCurrency(receipt.amount, receipt.currency)}</td>
                 <td className="px-5 py-4"><StatusBadge status={receipt.status} /></td>
+                <td className="px-5 py-4 text-right">
+                  <Link
+                    className="rounded-full bg-slate-950 px-4 py-2 text-xs font-black text-white hover:bg-slate-700"
+                    href={`/receipts/${receipt.id}`}
+                  >
+                    Open
+                  </Link>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -57,6 +66,12 @@ export function ReceiptTable({ receipts }: ReceiptTableProps) {
               <StatusBadge status={receipt.status} />
               <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">{receipt.category}</span>
               <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold capitalize text-slate-600">{receipt.expense_type}</span>
+              <Link
+                className="rounded-full bg-slate-950 px-3 py-1 text-xs font-black text-white"
+                href={`/receipts/${receipt.id}`}
+              >
+                Open review
+              </Link>
             </div>
           </article>
         ))}
