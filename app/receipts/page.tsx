@@ -85,7 +85,8 @@ export default async function ReceiptsPage() {
         </Link>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-3">
+      <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <StatCard helper="Saved rows in Turso." label="Receipts" value={`${receipts.length}`} />
         <StatCard helper="From live Turso receipts." label="Registered total" value={formatCurrency(totalAmount)} />
         <StatCard helper="Ready for reports and export." label="Processed" tone="emerald" value={`${processed}`} />
         <StatCard helper="Needs manual decision." label="Review" tone="rose" value={`${needsReview}`} />
