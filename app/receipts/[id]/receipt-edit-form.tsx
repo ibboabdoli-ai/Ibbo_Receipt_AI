@@ -22,7 +22,7 @@ export function ReceiptEditForm({ receipt }: ReceiptEditFormProps) {
   const [amount, setAmount] = useState(String(receipt.amount));
   const [date, setDate] = useState(receipt.date);
   const [currency, setCurrency] = useState(receipt.currency);
-  const [category, setCategory] = useState(receipt.category);
+  const [category, setCategory] = useState<string>(receipt.category);
   const [expenseType, setExpenseType] = useState(receipt.expense_type);
   const [vatAmount, setVatAmount] = useState(receipt.vat_amount === null ? "" : String(receipt.vat_amount));
   const [paymentMethod, setPaymentMethod] = useState(receipt.payment_method ?? "");
