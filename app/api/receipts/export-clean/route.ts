@@ -1,4 +1,4 @@
-import { db, ensureReceiptsTable } from "../../../../../lib/db";
+import { db, ensureReceiptsTable } from "../../../../lib/db";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
