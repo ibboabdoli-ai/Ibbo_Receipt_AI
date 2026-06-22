@@ -23,7 +23,7 @@ const fallbackExtraction: ReceiptExtraction = {
   vatAmount: null,
   paymentMethod: "",
   confidence: 0,
-  notes: "AI extraction did not return usable receipt data.",
+  notes: "AI extraction did not return usable receipt data. Receipt saved for manual review.",
 };
 
 function cleanText(value: unknown, fallback: string) {
@@ -84,74 +84,79 @@ export async function extractReceiptFromImage(input: {
     };
   }
 
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  try {
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-  const response = await openai.responses.create({
-    model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
-    input: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "input_text",
-            text:
-              "Extract receipt data. Return JSON only. Use SEK if currency is unclear. Category must be one of: Food, Restaurant, Car, Health, Tools, Home, Software, Office, Travel, Business, Private, Unknown.",
-          },
-          {
-            type: "input_image",
-            image_url: `data:${input.mimeType};base64,${input.imageBase64}`,
-            detail: "low",
-          },
-        ],
-      },
-    ],
-    text: {
-      format: {
-        type: "json_schema",
-        name: "receipt_extraction",
-        strict: true,
-        schema: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            date: { type: "string" },
-            merchant: { type: "string" },
-            amount: { type: ["number", "null"] },
-            currency: { type: "string" },
-            category: { type: "string" },
-            expense_type: { type: "string" },
-            vat_amount: { type: ["number", "null"] },
-            payment_method: { type: "string" },
-            confidence: { type: "number" },
-            notes: { type: "string" },
-          },
-          required: [
-            "date",
-            "merchant",
-            "amount",
-            "currency",
-            "category",
-            "expense_type",
-            "vat_amount",
-            "payment_method",
-            "confidence",
-            "notes",
+    const response = await openai.responses.create({
+      model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
+      input: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text:
+                "Extract receipt data. Return JSON only. Use SEK if currency is unclear. Category must be one of: Food, Restaurant, Car, Health, Tools, Home, Software, Office, Travel, Business, Private, Unknown.",
+            },
+            {
+              type: "input_image",
+              image_url: `data:${input.mimeType};base64,${input.imageBase64}`,
+              detail: "low",
+            },
           ],
         },
+      ],
+      text: {
+        format: {
+          type: "json_schema",
+          name: "receipt_extraction",
+          strict: true,
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              date: { type: "string" },
+              merchant: { type: "string" },
+              amount: { type: ["number", "null"] },
+              currency: { type: "string" },
+              category: { type: "string" },
+              expense_type: { type: "string" },
+              vat_amount: { type: ["number", "null"] },
+              payment_method: { type: "string" },
+              confidence: { type: "number" },
+              notes: { type: "string" },
+            },
+            required: [
+              "date",
+              "merchant",
+              "amount",
+              "currency",
+              "category",
+              "expense_type",
+              "vat_amount",
+              "payment_method",
+              "confidence",
+              "notes",
+            ],
+          },
+        },
       },
-    },
-  });
+    });
 
-  const outputText = response.output_text;
+    const outputText = response.output_text;
 
-  if (!outputText) {
-    return fallbackExtraction;
-  }
+    if (!outputText) {
+      return fallbackExtraction;
+    }
 
-  try {
     const parsed = JSON.parse(outputText) as Record<string, unknown>;
     return normalizeExtraction(parsed);
-  } catch {
-    return fallbackExtraction;
+  } catch (error) {
+    console.error("AI receipt extraction failed", error);
+
+    return {
+      ...fallbackExtraction,
+      notes: "AI extraction failed. Receipt saved for manual review.",
+    };
   }
 }
