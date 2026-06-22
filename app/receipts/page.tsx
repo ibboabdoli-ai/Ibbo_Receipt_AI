@@ -77,7 +77,7 @@ export default async function ReceiptsPage() {
           <p className="text-sm font-bold uppercase tracking-[0.18em] text-slate-400">Receipts</p>
           <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-950">Receipt register</h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-            Live receipt data from Turso. Test receipts are created from the Phase 2C upload page.
+            Live receipt data from Turso. Uploaded receipts are stored in Vercel Blob, processed by OpenAI, and ready for manual review.
           </p>
         </div>
         <Link className="rounded-2xl bg-slate-950 px-5 py-3 text-center font-black text-white" href="/receipts/new">
@@ -101,7 +101,7 @@ export default async function ReceiptsPage() {
         <ReceiptTable receipts={receipts} />
       ) : (
         <div className="rounded-[2rem] border border-dashed border-slate-300 bg-white p-8 text-center text-slate-600">
-          No receipts saved yet. Create a test receipt from the upload page.
+          No receipts saved yet. Upload a receipt image to start AI extraction and live reporting.
         </div>
       )}
     </div>
