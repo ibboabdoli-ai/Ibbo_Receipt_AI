@@ -1,5 +1,3 @@
-import Link from "next/link";
-
 const tools = [
   {
     title: "Dashboard",
@@ -61,11 +59,11 @@ export default function ToolsPage() {
 
       <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         {tools.map((tool) => (
-          <Link key={tool.href} className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-soft transition hover:-translate-y-0.5 hover:shadow-lg" href={tool.href}>
+          <a key={tool.href} className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-soft transition hover:-translate-y-0.5 hover:shadow-lg" href={tool.href}>
             <p className="text-xl font-black text-slate-950">{tool.title}</p>
             <p className="mt-3 text-sm leading-6 text-slate-600">{tool.description}</p>
             <p className="mt-4 text-sm font-black text-slate-950 underline">Open</p>
-          </Link>
+          </a>
         ))}
       </section>
     </div>
