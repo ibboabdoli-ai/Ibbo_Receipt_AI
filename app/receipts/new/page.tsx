@@ -1,69 +1,92 @@
-import { receiptCategories } from "../../../lib/receipts";
+"use client";
+
+import { useState } from "react";
 
 export default function NewReceiptPage() {
+  const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [message, setMessage] = useState("");
+
+  async function createTestReceipt() {
+    setStatus("loading");
+    setMessage("Creating test receipt...");
+
+    try {
+      const response = await fetch("/api/receipts", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          date: new Date().toISOString().slice(0, 10),
+          merchant: "ICA Test",
+          amount: 149.9,
+          currency: "SEK",
+          category: "Food",
+          expense_type: "private",
+          vat_amount: 17.84,
+          payment_method: "card",
+          notes: "Created from Phase 2C test button",
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || "Failed to create receipt");
+      }
+
+      setStatus("success");
+      setMessage("Test receipt saved in Turso ✅");
+    } catch (error) {
+      console.error(error);
+      setStatus("error");
+      setMessage("Could not save test receipt ❌");
+    }
+  }
+
   return (
     <div className="mx-auto max-w-3xl space-y-7">
       <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-soft sm:p-8">
         <p className="text-sm font-bold uppercase tracking-[0.18em] text-slate-400">Upload</p>
         <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-950">Scan a receipt</h1>
         <p className="mt-3 text-sm leading-6 text-slate-600">
-          Phase 1 UI only: the form is ready for Vercel Blob storage, Turso, and AI extraction, but submission is intentionally disabled until environment variables and API route are connected.
+          Phase 2C test: create a receipt in Turso before enabling real image upload.
         </p>
       </section>
 
-      <form className="space-y-5 rounded-[2rem] border border-slate-200 bg-white p-5 shadow-soft sm:p-6">
-        <label className="block">
-          <span className="text-sm font-black text-slate-800">Receipt image</span>
-          <input
-            accept="image/*,application/pdf"
-            className="mt-2 block w-full cursor-pointer rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5 text-sm font-semibold text-slate-600 file:mr-4 file:rounded-full file:border-0 file:bg-slate-950 file:px-4 file:py-2 file:text-sm file:font-black file:text-white"
-            type="file"
-          />
-        </label>
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <label className="block">
-            <span className="text-sm font-black text-slate-800">Merchant</span>
-            <input className="mt-2 w-full rounded-2xl border-slate-200" placeholder="Maxi ICA Stormarknad" type="text" />
-          </label>
-          <label className="block">
-            <span className="text-sm font-black text-slate-800">Amount</span>
-            <input className="mt-2 w-full rounded-2xl border-slate-200" placeholder="1129" type="number" />
-          </label>
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <label className="block">
-            <span className="text-sm font-black text-slate-800">Date</span>
-            <input className="mt-2 w-full rounded-2xl border-slate-200" type="date" />
-          </label>
-          <label className="block">
-            <span className="text-sm font-black text-slate-800">Category</span>
-            <select className="mt-2 w-full rounded-2xl border-slate-200" defaultValue="Unknown / Needs review">
-              {receiptCategories.map((category) => (
-                <option key={category}>{category}</option>
-              ))}
-            </select>
-          </label>
-        </div>
-
-        <label className="block">
-          <span className="text-sm font-black text-slate-800">Notes</span>
-          <textarea className="mt-2 w-full rounded-2xl border-slate-200" placeholder="Optional manual note" rows={4} />
-        </label>
-
-        <div className="rounded-3xl bg-amber-50 p-4 text-sm leading-6 text-amber-950 ring-1 ring-amber-200">
-          <strong>Next step:</strong> connect an API route that uploads the file to Vercel Blob, calls the receipt extraction helper, then inserts a row into the Turso receipts table.
+      <section className="space-y-5 rounded-[2rem] border border-slate-200 bg-white p-5 shadow-soft sm:p-6">
+        <div>
+          <h2 className="text-xl font-black text-slate-950">Test database save</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            This creates one sample receipt through POST /api/receipts.
+          </p>
         </div>
 
         <button
-          className="w-full cursor-not-allowed rounded-2xl bg-slate-300 px-5 py-4 font-black text-slate-600"
-          disabled
+          className="w-full rounded-2xl bg-emerald-500 px-5 py-4 font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={status === "loading"}
+          onClick={createTestReceipt}
           type="button"
         >
-          Processing disabled in Phase 1 baseline
+          {status === "loading" ? "Saving..." : "Create test receipt"}
         </button>
-      </form>
+
+        {message ? (
+          <p
+            className={
+              status === "error"
+                ? "rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700 ring-1 ring-red-200"
+                : "rounded-2xl bg-emerald-50 p-4 text-sm font-bold text-emerald-700 ring-1 ring-emerald-200"
+            }
+          >
+            {message}
+          </p>
+        ) : null}
+      </section>
+
+      <a className="inline-block text-sm font-bold text-emerald-700 underline" href="/receipts">
+        View receipts
+      </a>
     </div>
   );
 }
