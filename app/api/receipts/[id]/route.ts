@@ -113,7 +113,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       args: [id],
     });
 
-    const current = currentResult.rows[0] as ReceiptRow | undefined;
+    const current = currentResult.rows[0] as unknown as ReceiptRow | undefined;
 
     if (!current) {
       return NextResponse.json({ ok: false, error: "Receipt not found" }, { status: 404 });
@@ -179,7 +179,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       args: [id],
     });
 
-    const updated = updatedResult.rows[0] as ReceiptRow;
+    const updated = updatedResult.rows[0] as unknown as ReceiptRow;
 
     return NextResponse.json({
       ok: true,
