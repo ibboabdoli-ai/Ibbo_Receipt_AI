@@ -142,10 +142,13 @@ export const sampleReceipts: Receipt[] = [
 ];
 
 export function formatCurrency(amount: number, currency = "SEK") {
+  const hasDecimals = !Number.isInteger(amount);
+
   return new Intl.NumberFormat("sv-SE", {
     style: "currency",
     currency,
-    maximumFractionDigits: 0
+    minimumFractionDigits: hasDecimals ? 2 : 0,
+    maximumFractionDigits: hasDecimals ? 2 : 0
   }).format(amount);
 }
 
