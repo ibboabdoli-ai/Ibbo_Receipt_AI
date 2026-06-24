@@ -30,6 +30,7 @@ const extractionPrompt = `Extract data from this receipt, invoice, or faktura im
 Return only valid JSON with these keys: date, merchant, amount, currency, category, expense_type, vat_amount, payment_method, confidence, notes.
 
 Rules:
+- Read the document text carefully. Do not guess company names or dates.
 - If the document is an invoice/faktura, merchant must be the supplier/vendor/seller, not the bill-to customer.
 - For invoices, amount must be Total, Total due, or Amount due. Do not use unit price or subtotal if a total/amount due exists.
 - For invoices, date must be Date of issue or invoice date. Do not use the service period as the invoice date.
@@ -38,6 +39,7 @@ Rules:
 - Use SEK only if currency is unclear.
 - Use ISO date YYYY-MM-DD if possible.
 - For software subscriptions, AI tools, SaaS, Claude, OpenAI, Anthropic, Google, Microsoft, or similar services, category should be Software and expense_type should usually be business.
+- If the document says Anthropic, PBC, keep merchant exactly as Anthropic, PBC.
 - category must be one of: Food, Restaurant, Car, Health, Tools, Home, Software, Office, Travel, Business, Private, Unknown.
 - expense_type must be business, private, or unknown.
 - confidence must be 0-100.
@@ -102,7 +104,7 @@ export async function extractReceiptFromImage(input: {
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
     const completion = await openai.chat.completions.create({
-      model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+      model: process.env.OPENAI_MODEL || "gpt-4o",
       temperature: 0,
       max_tokens: 700,
       response_format: { type: "json_object" },
@@ -118,7 +120,7 @@ export async function extractReceiptFromImage(input: {
               type: "image_url",
               image_url: {
                 url: `data:${input.mimeType};base64,${input.imageBase64}`,
-                detail: "low",
+                detail: "high",
               },
             },
           ],
