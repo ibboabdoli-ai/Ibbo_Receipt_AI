@@ -26,6 +26,23 @@ const fallbackExtraction: ReceiptExtraction = {
   notes: "AI extraction did not return usable receipt data. Receipt saved for manual review.",
 };
 
+const extractionPrompt = `Extract data from this receipt, invoice, or faktura image.
+Return only valid JSON with these keys: date, merchant, amount, currency, category, expense_type, vat_amount, payment_method, confidence, notes.
+
+Rules:
+- If the document is an invoice/faktura, merchant must be the supplier/vendor/seller, not the bill-to customer.
+- For invoices, amount must be Total, Total due, or Amount due. Do not use unit price or subtotal if a total/amount due exists.
+- For invoices, date must be Date of issue or invoice date. Do not use the service period as the invoice date.
+- VAT must be the explicit VAT/tax amount if shown.
+- Currency must match the document symbol or code, for example EUR for €, SEK for kr/SEK, USD for $.
+- Use SEK only if currency is unclear.
+- Use ISO date YYYY-MM-DD if possible.
+- For software subscriptions, AI tools, SaaS, Claude, OpenAI, Anthropic, Google, Microsoft, or similar services, category should be Software and expense_type should usually be business.
+- category must be one of: Food, Restaurant, Car, Health, Tools, Home, Software, Office, Travel, Business, Private, Unknown.
+- expense_type must be business, private, or unknown.
+- confidence must be 0-100.
+- notes should include important invoice/receipt context such as invoice number, period, or VAT rate if visible.`;
+
 function cleanText(value: unknown, fallback: string) {
   if (typeof value !== "string") {
     return fallback;
@@ -87,7 +104,7 @@ export async function extractReceiptFromImage(input: {
     const completion = await openai.chat.completions.create({
       model: process.env.OPENAI_MODEL || "gpt-4o-mini",
       temperature: 0,
-      max_tokens: 500,
+      max_tokens: 700,
       response_format: { type: "json_object" },
       messages: [
         {
@@ -95,8 +112,7 @@ export async function extractReceiptFromImage(input: {
           content: [
             {
               type: "text",
-              text:
-                "Extract data from this receipt image. Return only valid JSON with these keys: date, merchant, amount, currency, category, expense_type, vat_amount, payment_method, confidence, notes. Use SEK if currency is unclear. Use ISO date YYYY-MM-DD if possible. category must be one of: Food, Restaurant, Car, Health, Tools, Home, Software, Office, Travel, Business, Private, Unknown. expense_type must be business, private, or unknown. confidence must be 0-100.",
+              text: extractionPrompt,
             },
             {
               type: "image_url",
