@@ -1,61 +1,31 @@
-import { db, ensureReceiptsTable } from "../../../../lib/db";
+import { NextRequest } from "next/server";
+import {
+  getExportReceipts,
+  receiptsToCsv,
+} from "../../../../lib/receipt-export";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const columns = [
-  "id",
-  "date",
-  "merchant",
-  "amount",
-  "currency",
-  "category",
-  "expense_type",
-  "vat_amount",
-  "payment_method",
-  "confidence",
-  "status",
-  "notes",
-  "image_url",
-  "created_at",
-] as const;
-
-function csvCell(value: unknown) {
-  if (value === null || value === undefined) return "";
-
-  const text = String(value).replace(/\r?\n/g, " ");
-  const escaped = text.replace(/"/g, '""');
-
-  if (/[",\n]/.test(escaped)) {
-    return `"${escaped}"`;
-  }
-
-  return escaped;
-}
-
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    await ensureReceiptsTable();
-
-    const result = await db.execute(
-      "SELECT id, date, merchant, amount, currency, category, expense_type, vat_amount, payment_method, confidence, status, notes, image_url, created_at FROM receipts ORDER BY created_at DESC LIMIT 1000",
-    );
-
-    const header = columns.join(",");
-    const body = result.rows.map((row) => columns.map((column) => csvCell(row[column])).join(","));
-    const csv = `\uFEFF${[header, ...body].join("\n")}\n`;
+    const receipts = await getExportReceipts(request.nextUrl.searchParams);
+    const csv = receiptsToCsv(receipts);
+    const month = request.nextUrl.searchParams.get("month");
+    const suffix = month && /^\d{4}-\d{2}$/.test(month) ? `-${month}` : "";
 
     return new Response(csv, {
       headers: {
-        "Cache-Control": "no-store",
-        "Content-Disposition": 'attachment; filename="ibbo-receipts-export.csv"',
+        "Cache-Control": "private, no-store",
+        "Content-Disposition": `attachment; filename="ibbo-receipts${suffix}.csv"`,
         "Content-Type": "text/csv; charset=utf-8",
+        "X-Content-Type-Options": "nosniff",
       },
     });
   } catch (error) {
-    console.error("GET /api/receipts/export failed", error);
+    console.error("GET CSV export failed", error);
 
-    return new Response("Failed to export receipts\n", {
+    return new Response("Failed to export receipts.\n", {
       status: 500,
       headers: {
         "Content-Type": "text/plain; charset=utf-8",

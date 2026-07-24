@@ -1,142 +1,206 @@
 import { CategoryList } from "../../components/category-list";
+import { ReceiptTable } from "../../components/receipt-table";
 import { StatCard } from "../../components/stat-card";
-import { db, ensureReceiptsTable } from "../../lib/db";
-import { formatCurrency, type CategoryTotal } from "../../lib/receipts";
+import {
+  currentMonthKey,
+  listReceipts,
+  normalizeMonth,
+} from "../../lib/receipt-store";
+import {
+  formatCurrency,
+  getCategoryTotalsInSek,
+  getCurrencyTotals,
+  getMissingExchangeRateCount,
+  getSekEquivalentTotal,
+} from "../../lib/receipts";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-type ReportReceipt = {
-  amount: number;
-  category: string;
-  expenseType: string;
-  status: string;
+type ReportsPageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-function toNumber(value: unknown, fallback = 0) {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string") {
-    const parsed = Number(value.replace(",", "."));
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return fallback;
+function first(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
 }
 
-function toText(value: unknown, fallback: string) {
-  return typeof value === "string" && value.trim().length > 0 ? value : fallback;
-}
-
-function getTotalAmount(receipts: ReportReceipt[]) {
-  return receipts.reduce((total, receipt) => total + receipt.amount, 0);
-}
-
-function getCategoryTotals(receipts: ReportReceipt[]): CategoryTotal[] {
-  const total = getTotalAmount(receipts);
-  const byCategory = new Map<string, { amount: number; count: number }>();
-
-  for (const receipt of receipts) {
-    const existing = byCategory.get(receipt.category) ?? { amount: 0, count: 0 };
-    byCategory.set(receipt.category, {
-      amount: existing.amount + receipt.amount,
-      count: existing.count + 1,
-    });
-  }
-
-  return Array.from(byCategory.entries())
-    .map(([category, value]) => ({
-      category: category as CategoryTotal["category"],
-      amount: value.amount,
-      count: value.count,
-      percentage: total === 0 ? 0 : (value.amount / total) * 100,
-    }))
-    .sort((a, b) => b.amount - a.amount);
-}
-
-async function getReportReceipts(): Promise<ReportReceipt[]> {
-  await ensureReceiptsTable();
-
-  const result = await db.execute(
-    "SELECT amount, category, expense_type, status FROM receipts ORDER BY created_at DESC LIMIT 500",
+export default async function ReportsPage({
+  searchParams,
+}: ReportsPageProps) {
+  const params = await searchParams;
+  const month = normalizeMonth(first(params.month) || currentMonthKey());
+  const result = await listReceipts({
+    month,
+    page: 1,
+    pageSize: 2000,
+    sort: "date_desc",
+  });
+  const receipts = result.receipts;
+  const totalSek = getSekEquivalentTotal(receipts);
+  const categoryTotals = getCategoryTotalsInSek(receipts);
+  const currencyTotals = getCurrencyTotals(receipts);
+  const missingFx = getMissingExchangeRateCount(receipts);
+  const business = receipts.filter(
+    (receipt) => receipt.expense_type === "business",
   );
-
-  return result.rows.map((row) => ({
-    amount: toNumber(row.amount),
-    category: toText(row.category, "Unknown"),
-    expenseType: toText(row.expense_type, "unknown"),
-    status: toText(row.status, "processed"),
-  }));
-}
-
-export default async function ReportsPage() {
-  let receipts: ReportReceipt[] = [];
-  let errorMessage = "";
-
-  try {
-    receipts = await getReportReceipts();
-  } catch (error) {
-    console.error("Reports page failed", error);
-    errorMessage = "Could not load live report data from Turso.";
-  }
-
-  const categoryTotals = getCategoryTotals(receipts);
-  const totalAmount = getTotalAmount(receipts);
-  const topCategory = categoryTotals[0];
-  const reviewReceipts = receipts.filter(
-    (receipt) => receipt.category === "Unknown" || receipt.status === "needs_review",
+  const privateReceipts = receipts.filter(
+    (receipt) => receipt.expense_type === "private",
   );
-  const unknownAmount = getTotalAmount(reviewReceipts);
-  const businessAmount = getTotalAmount(receipts.filter((receipt) => receipt.expenseType === "business"));
-  const privateAmount = getTotalAmount(receipts.filter((receipt) => receipt.expenseType === "private"));
+  const pending = receipts.filter(
+    (receipt) => receipt.approval_status === "pending",
+  );
+  const approved = receipts.filter(
+    (receipt) => receipt.approval_status === "approved",
+  );
+  const review = receipts.filter(
+    (receipt) =>
+      receipt.status === "needs_review" ||
+      receipt.expense_type === "unknown" ||
+      receipt.duplicate_of,
+  );
 
   return (
     <div className="space-y-7">
       <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-soft sm:p-8">
-        <p className="text-sm font-bold uppercase tracking-[0.18em] text-slate-400">Reports</p>
-        <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-950">Monthly category summary</h1>
-        <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-          Live Turso report data from saved receipts. Review category totals, unknown costs, and future export readiness.
-        </p>
-      </section>
-
-      <section className="grid gap-4 md:grid-cols-3">
-        <StatCard helper="Total amount from live Turso receipts." label="Month total" value={formatCurrency(totalAmount)} />
-        <StatCard helper="Largest live category." label="Top category" tone="amber" value={topCategory?.category ?? "None"} />
-        <StatCard helper="Needs review before export." label="Review amount" tone="rose" value={formatCurrency(unknownAmount)} />
-        <StatCard helper="Receipts marked as business cost." label="Business total" value={formatCurrency(businessAmount)} />
-        <StatCard helper="Receipts marked as private cost." label="Private total" tone="amber" value={formatCurrency(privateAmount)} />
-        <StatCard helper="Receipts waiting for manual review." label="Review queue" tone="rose" value={`${reviewReceipts.length} receipts`} />
-      </section>
-
-      {errorMessage ? (
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-bold text-rose-700">
-          {errorMessage}
-        </div>
-      ) : null}
-
-      <section className="grid gap-6 lg:grid-cols-[1fr_0.8fr]">
-        <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-soft sm:p-6">
-          <div className="mb-5">
-            <p className="text-sm font-bold uppercase tracking-[0.18em] text-slate-400">Summary</p>
-            <h2 className="text-2xl font-black text-slate-950">Category totals</h2>
+        <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
+          <div>
+            <p className="text-sm font-bold uppercase tracking-[0.18em] text-slate-400">
+              Reports
+            </p>
+            <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-950">
+              Monthly bookkeeping summary
+            </h1>
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
+              All metrics are filtered by the receipt date. SEK totals exclude
+              foreign-currency rows until a conversion is confirmed.
+            </p>
           </div>
-          {categoryTotals.length > 0 ? (
-            <CategoryList totals={categoryTotals} />
+          <form className="flex gap-2" method="get">
+            <input
+              className="rounded-xl border border-slate-200 px-3 py-2 font-bold text-slate-950"
+              defaultValue={month}
+              name="month"
+              type="month"
+            />
+            <button
+              className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-black text-white"
+              type="submit"
+            >
+              Apply
+            </button>
+          </form>
+        </div>
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <StatCard
+          helper={`Known SEK value for ${month}.`}
+          label="SEK equivalent"
+          value={formatCurrency(totalSek)}
+        />
+        <StatCard
+          helper="Rows manually approved for export."
+          label="Approved"
+          tone="emerald"
+          value={`${approved.length}`}
+        />
+        <StatCard
+          helper="Rows still waiting for an accounting decision."
+          label="Pending"
+          tone="amber"
+          value={`${pending.length}`}
+        />
+        <StatCard
+          helper="Foreign-currency rows missing a SEK conversion."
+          label="Missing FX"
+          tone={missingFx ? "rose" : "emerald"}
+          value={`${missingFx}`}
+        />
+        <StatCard
+          helper="Known SEK value for business-tagged receipts."
+          label="Business"
+          value={formatCurrency(getSekEquivalentTotal(business))}
+        />
+        <StatCard
+          helper="Known SEK value for private-tagged receipts."
+          label="Private"
+          tone="amber"
+          value={formatCurrency(getSekEquivalentTotal(privateReceipts))}
+        />
+        <StatCard
+          helper="Duplicate, unknown, or low-confidence rows."
+          label="Review queue"
+          tone="rose"
+          value={`${review.length}`}
+        />
+        <StatCard
+          helper="All receipt rows in the selected month."
+          label="Receipts"
+          value={`${receipts.length}`}
+        />
+      </section>
+
+      <section className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+        <div className="space-y-6">
+          <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-soft">
+            <p className="text-sm font-bold uppercase tracking-[0.18em] text-slate-400">
+              Currency control
+            </p>
+            <h2 className="mt-1 text-2xl font-black text-slate-950">
+              Original currency totals
+            </h2>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              {currencyTotals.map((item) => (
+                <article
+                  className="rounded-2xl border border-slate-200 p-4"
+                  key={item.currency}
+                >
+                  <p className="text-sm font-bold text-slate-500">
+                    {item.count} receipt{item.count === 1 ? "" : "s"}
+                  </p>
+                  <p className="mt-2 text-xl font-black text-slate-950">
+                    {formatCurrency(item.amount, item.currency)}
+                  </p>
+                </article>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="mb-1 text-sm font-bold uppercase tracking-[0.18em] text-slate-400">
+              Categories
+            </p>
+            <h2 className="mb-4 text-2xl font-black text-slate-950">
+              SEK category totals
+            </h2>
+            {categoryTotals.length ? (
+              <CategoryList totals={categoryTotals} />
+            ) : (
+              <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-6 text-sm text-slate-600">
+                No SEK-equivalent category data for this month.
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-4">
+            <p className="text-sm font-bold uppercase tracking-[0.18em] text-slate-400">
+              Attention
+            </p>
+            <h2 className="text-2xl font-black text-slate-950">
+              Rows blocking clean export
+            </h2>
+          </div>
+          {review.length ? (
+            <ReceiptTable receipts={review.slice(0, 50)} />
           ) : (
-            <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-slate-600">
-              No receipt data saved yet. Upload a receipt image to start live reporting.
+            <div className="rounded-[2rem] border border-emerald-200 bg-emerald-50 p-8 text-center font-bold text-emerald-900">
+              No duplicate or review rows for {month}.
             </div>
           )}
         </div>
-        <aside className="rounded-[2rem] border border-slate-200 bg-slate-950 p-6 text-white shadow-soft">
-          <p className="text-sm font-bold uppercase tracking-[0.18em] text-slate-400">Export plan</p>
-          <h2 className="mt-2 text-2xl font-black">Ready for Phase 2</h2>
-          <ul className="mt-5 space-y-3 text-sm leading-6 text-slate-300">
-            <li>CSV export for spreadsheet review.</li>
-            <li>Excel export for monthly bokföring preparation.</li>
-            <li>Review queue for high-value and unknown receipts.</li>
-            <li>Business/private correction before report locking.</li>
-          </ul>
-        </aside>
       </section>
     </div>
   );

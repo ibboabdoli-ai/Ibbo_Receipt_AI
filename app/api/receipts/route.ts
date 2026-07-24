@@ -1,117 +1,44 @@
-import { put } from "@vercel/blob";
-import { NextResponse } from "next/server";
+import { createHash } from "node:crypto";
+import { del, put } from "@vercel/blob";
+import { NextRequest, NextResponse } from "next/server";
 import { db, ensureReceiptsTable } from "../../../lib/db";
-import { extractReceiptFromImage } from "../../../lib/extract-receipt";
+import { extractReceiptFromFile } from "../../../lib/extract-receipt";
+import {
+  listReceipts,
+  parseReceiptFilters,
+} from "../../../lib/receipt-store";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
-type CreateReceiptBody = {
-  date?: string;
-  merchant?: string;
-  amount?: number;
-  currency?: string;
-  category?: string;
-  expense_type?: string;
-  vat_amount?: number | null;
-  payment_method?: string | null;
-  notes?: string | null;
-};
-
-function cleanText(value: unknown, fallback: string) {
-  if (typeof value !== "string") {
-    return fallback;
-  }
-
+function cleanText(value: unknown, fallback = "", maxLength = 1000) {
+  if (typeof value !== "string") return fallback;
   const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : fallback;
-}
-
-function cleanNumber(value: unknown, fallback: number | null) {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-
-  if (typeof value === "string") {
-    const parsed = Number(value.replace(",", "."));
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-
-  return fallback;
+  return (trimmed || fallback).slice(0, maxLength);
 }
 
 function safeFileName(name: string) {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9.\-_]+/g, "-")
-    .replace(/-+/g, "-")
-    .slice(0, 90);
+  return (
+    name
+      .normalize("NFKD")
+      .toLowerCase()
+      .replace(/[^a-z0-9.\-_]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 100) || "receipt"
+  );
 }
 
-async function insertReceipt(input: {
-  id: string;
-  date: string;
-  merchant: string;
-  amount: number | null;
-  currency: string;
-  category: string;
-  expenseType: string;
-  vatAmount: number | null;
-  paymentMethod: string;
-  confidence: number;
-  imageUrl: string | null;
-  notes: string;
-  status: string;
-}) {
-  await db.execute({
-    sql: `
-      INSERT INTO receipts (
-        id,
-        date,
-        merchant,
-        amount,
-        currency,
-        category,
-        expense_type,
-        vat_amount,
-        payment_method,
-        confidence,
-        image_url,
-        notes,
-        status
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-    args: [
-      input.id,
-      input.date,
-      input.merchant,
-      input.amount,
-      input.currency,
-      input.category,
-      input.expenseType,
-      input.vatAmount,
-      input.paymentMethod,
-      input.confidence,
-      input.imageUrl,
-      input.notes,
-      input.status,
-    ],
-  });
-}
-
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    await ensureReceiptsTable();
-
-    const result = await db.execute(
-      "SELECT id, date, merchant, amount, currency, category, expense_type, vat_amount, payment_method, confidence, image_url, notes, status, created_at FROM receipts ORDER BY created_at DESC LIMIT 50",
+    const result = await listReceipts(
+      parseReceiptFilters(request.nextUrl.searchParams),
     );
 
     return NextResponse.json({
       ok: true,
-      receipts: result.rows,
+      ...result,
     });
   } catch (error) {
     console.error("GET /api/receipts failed", error);
@@ -120,177 +47,231 @@ export async function GET() {
       {
         ok: false,
         receipts: [],
-        error: "Failed to load receipts",
+        error: "Failed to load receipts.",
       },
       { status: 500 },
     );
   }
 }
 
-async function createReceiptFromJson(request: Request) {
-  const body = (await request.json()) as CreateReceiptBody;
+export async function POST(request: NextRequest) {
+  let storedUrl: string | null = null;
 
-  const id = crypto.randomUUID();
-  const date = cleanText(body.date, new Date().toISOString().slice(0, 10));
-  const merchant = cleanText(body.merchant, "Test Merchant");
-  const amount = cleanNumber(body.amount, 0);
-  const currency = cleanText(body.currency, "SEK");
-  const category = cleanText(body.category, "Unknown");
-  const expenseType = cleanText(body.expense_type, "unknown");
-  const vatAmount = cleanNumber(body.vat_amount, null);
-  const paymentMethod = cleanText(body.payment_method, "");
-  const notes = cleanText(body.notes, "Created from test POST");
-
-  await insertReceipt({
-    id,
-    date,
-    merchant,
-    amount,
-    currency,
-    category,
-    expenseType,
-    vatAmount,
-    paymentMethod,
-    confidence: 100,
-    imageUrl: null,
-    notes,
-    status: "processed",
-  });
-
-  return NextResponse.json(
-    {
-      ok: true,
-      receipt: {
-        id,
-        date,
-        merchant,
-        amount,
-        currency,
-        category,
-        expense_type: expenseType,
-        vat_amount: vatAmount,
-        payment_method: paymentMethod,
-        confidence: 100,
-        image_url: null,
-        notes,
-        status: "processed",
-      },
-    },
-    { status: 201 },
-  );
-}
-
-async function createReceiptFromUpload(request: Request) {
-  const formData = await request.formData();
-  const file = formData.get("file");
-
-  if (!(file instanceof File)) {
-    return NextResponse.json(
-      { ok: false, error: "Receipt image is required" },
-      { status: 400 },
-    );
-  }
-
-  if (!file.type.startsWith("image/")) {
-    return NextResponse.json(
-      { ok: false, error: "Only image files are supported" },
-      { status: 400 },
-    );
-  }
-
-  if (file.size > 10 * 1024 * 1024) {
-    return NextResponse.json(
-      { ok: false, error: "Image is too large. Max 10 MB." },
-      { status: 400 },
-    );
-  }
-
-  const id = crypto.randomUUID();
-  const originalName = safeFileName(file.name || "receipt.jpg");
-  const imageArrayBuffer = await file.arrayBuffer();
-  const imageBase64 = Buffer.from(imageArrayBuffer).toString("base64");
-
-  const blob = await put(
-    `receipts/${id}-${originalName}`,
-    new Blob([imageArrayBuffer], { type: file.type }),
-    {
-      access: "private",
-      addRandomSuffix: true,
-    },
-  );
-
-  const extraction = await extractReceiptFromImage({
-    imageBase64,
-    mimeType: file.type,
-  });
-
-  const userNotes = cleanText(formData.get("notes"), "");
-  const notes = userNotes
-    ? `${userNotes} | ${extraction.notes}`
-    : extraction.notes;
-  const status = extraction.confidence >= 70 ? "processed" : "needs_review";
-
-  await insertReceipt({
-    id,
-    date: extraction.date,
-    merchant: extraction.merchant,
-    amount: extraction.amount,
-    currency: extraction.currency,
-    category: extraction.category,
-    expenseType: extraction.expenseType,
-    vatAmount: extraction.vatAmount,
-    paymentMethod: extraction.paymentMethod,
-    confidence: extraction.confidence,
-    imageUrl: blob.url,
-    notes,
-    status,
-  });
-
-  return NextResponse.json(
-    {
-      ok: true,
-      receipt: {
-        id,
-        date: extraction.date,
-        merchant: extraction.merchant,
-        amount: extraction.amount,
-        currency: extraction.currency,
-        category: extraction.category,
-        expense_type: extraction.expenseType,
-        vat_amount: extraction.vatAmount,
-        payment_method: extraction.paymentMethod,
-        confidence: extraction.confidence,
-        image_url: blob.url,
-        notes,
-        status,
-      },
-      blob: {
-        url: blob.url,
-        pathname: blob.pathname,
-      },
-    },
-    { status: 201 },
-  );
-}
-
-export async function POST(request: Request) {
   try {
-    await ensureReceiptsTable();
-
     const contentType = request.headers.get("content-type") || "";
-
-    if (contentType.includes("multipart/form-data")) {
-      return await createReceiptFromUpload(request);
+    if (!contentType.includes("multipart/form-data")) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Only multipart receipt uploads are supported.",
+        },
+        { status: 415 },
+      );
     }
 
-    return await createReceiptFromJson(request);
+    await ensureReceiptsTable();
+
+    const formData = await request.formData();
+    const file = formData.get("file");
+
+    if (!(file instanceof File)) {
+      return NextResponse.json(
+        { ok: false, error: "Receipt image or PDF is required." },
+        { status: 400 },
+      );
+    }
+
+    const isImage = file.type.startsWith("image/");
+    const isPdf = file.type === "application/pdf";
+
+    if (!isImage && !isPdf) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Only image files and PDF documents are supported.",
+        },
+        { status: 400 },
+      );
+    }
+
+    if (file.size > 15 * 1024 * 1024) {
+      return NextResponse.json(
+        { ok: false, error: "Document is too large. Maximum size is 15 MB." },
+        { status: 400 },
+      );
+    }
+
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const fileHash = createHash("sha256").update(buffer).digest("hex");
+
+    const existingFile = await db.execute({
+      sql: `
+        SELECT id
+        FROM receipts
+        WHERE file_hash = ? AND archived_at IS NULL
+        ORDER BY created_at DESC
+        LIMIT 1
+      `,
+      args: [fileHash],
+    });
+
+    const existingId = String(existingFile.rows[0]?.id || "");
+    if (existingId) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "This exact file has already been uploaded.",
+          existing_id: existingId,
+        },
+        { status: 409 },
+      );
+    }
+
+    const id = crypto.randomUUID();
+    const originalName = safeFileName(file.name || (isPdf ? "receipt.pdf" : "receipt.jpg"));
+    const blob = await put(
+      `receipts/${id}-${originalName}`,
+      new Blob([arrayBuffer], { type: file.type }),
+      {
+        access: "private",
+        addRandomSuffix: true,
+      },
+    );
+    storedUrl = blob.url;
+
+    const extraction = await extractReceiptFromFile({
+      fileBase64: buffer.toString("base64"),
+      mimeType: file.type,
+      fileName: originalName,
+    });
+
+    const amount = extraction.amount ?? 0;
+    const currency = (extraction.currency || "SEK").toUpperCase();
+    const amountSek = currency === "SEK" ? amount : null;
+    const exchangeRate = currency === "SEK" ? 1 : null;
+    const userNotes = cleanText(formData.get("notes"), "", 1000);
+    const baseNotes = [userNotes, extraction.notes].filter(Boolean).join(" | ");
+
+    const semanticDuplicate = await db.execute({
+      sql: `
+        SELECT id
+        FROM receipts
+        WHERE
+          archived_at IS NULL
+          AND LOWER(TRIM(merchant)) = LOWER(TRIM(?))
+          AND date = ?
+          AND ABS(amount - ?) < 0.01
+          AND UPPER(currency) = ?
+        ORDER BY created_at DESC
+        LIMIT 1
+      `,
+      args: [extraction.merchant, extraction.date, amount, currency],
+    });
+
+    const duplicateOf = String(semanticDuplicate.rows[0]?.id || "") || null;
+    const confidence = Math.max(
+      0,
+      Math.min(100, Math.round(extraction.confidence)),
+    );
+    const status =
+      duplicateOf ||
+      confidence < 80 ||
+      amount <= 0 ||
+      extraction.merchant === "Uploaded receipt"
+        ? "needs_review"
+        : "processed";
+    const notes = duplicateOf
+      ? `${baseNotes} | Possible duplicate of ${duplicateOf}`
+      : baseNotes;
+
+    await db.execute({
+      sql: `
+        INSERT INTO receipts (
+          id, date, merchant, amount, currency, category, expense_type,
+          vat_amount, payment_method, confidence, image_url, notes, status,
+          document_type, file_name, mime_type, file_hash, invoice_number,
+          supplier_org_number, supplier_vat_number, due_date, net_amount,
+          vat_rate, vat_country, ocr_reference, original_currency,
+          exchange_rate, amount_sek, account_code, payment_account,
+          deductible_vat, approval_status, duplicate_of, updated_at
+        )
+        VALUES (
+          ?, ?, ?, ?, ?, ?, ?,
+          ?, ?, ?, ?, ?, ?,
+          ?, ?, ?, ?, ?,
+          ?, ?, ?, ?,
+          ?, ?, ?, ?,
+          ?, ?, ?, ?,
+          ?, ?, ?, CURRENT_TIMESTAMP
+        )
+      `,
+      args: [
+        id,
+        extraction.date,
+        extraction.merchant,
+        amount,
+        currency,
+        extraction.category,
+        extraction.expenseType,
+        extraction.vatAmount,
+        extraction.paymentMethod || null,
+        confidence,
+        blob.url,
+        notes || null,
+        status,
+        extraction.documentType,
+        originalName,
+        file.type,
+        fileHash,
+        extraction.invoiceNumber,
+        extraction.supplierOrgNumber,
+        extraction.supplierVatNumber,
+        extraction.dueDate,
+        extraction.netAmount,
+        extraction.vatRate,
+        extraction.vatCountry,
+        extraction.ocrReference,
+        currency,
+        exchangeRate,
+        amountSek,
+        extraction.accountCode,
+        null,
+        currency === "SEK" ? extraction.vatAmount : null,
+        "pending",
+        duplicateOf,
+      ],
+    });
+
+    return NextResponse.json(
+      {
+        ok: true,
+        receipt: {
+          id,
+          date: extraction.date,
+          merchant: extraction.merchant,
+          amount,
+          currency,
+          status,
+          approval_status: "pending",
+          duplicate_of: duplicateOf,
+        },
+      },
+      { status: 201 },
+    );
   } catch (error) {
     console.error("POST /api/receipts failed", error);
+
+    if (storedUrl) {
+      await del(storedUrl).catch((cleanupError) => {
+        console.error("Failed to clean up receipt blob", cleanupError);
+      });
+    }
 
     return NextResponse.json(
       {
         ok: false,
-        error: "Failed to create receipt",
+        error: "Failed to upload and process the receipt.",
       },
       { status: 500 },
     );
