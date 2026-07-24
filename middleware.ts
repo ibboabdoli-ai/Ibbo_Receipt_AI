@@ -1,19 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const DEFAULT_USERNAME = "ibbo";
-const DEFAULT_PASSWORD_SHA256 =
+const FALLBACK_USERNAME = "ibbo";
+const FALLBACK_PASSWORD_SHA256 =
   "9abff01bf5f0386c7eccd41fe9abaa14401a7135c5ffbfdf59937da5e13a7d7d";
 
+function securityHeaders(response: NextResponse) {
+  response.headers.set("Cache-Control", "private, no-store");
+  response.headers.set("Referrer-Policy", "same-origin");
+  response.headers.set("X-Content-Type-Options", "nosniff");
+  response.headers.set("X-Frame-Options", "DENY");
+  response.headers.set("X-Robots-Tag", "noindex, nofollow");
+  response.headers.set(
+    "Permissions-Policy",
+    "camera=(self), microphone=(), geolocation=()",
+  );
+  return response;
+}
+
 function unauthorized() {
-  return new NextResponse("Authentication required", {
-    status: 401,
-    headers: {
-      "Cache-Control": "no-store",
-      "WWW-Authenticate": 'Basic realm="Ibbo Receipt AI", charset="UTF-8"',
-      "X-Content-Type-Options": "nosniff",
-      "X-Frame-Options": "DENY",
-    },
-  });
+  return securityHeaders(
+    new NextResponse("Authentication required", {
+      status: 401,
+      headers: {
+        "WWW-Authenticate":
+          'Basic realm="Ibbo Receipt AI", charset="UTF-8"',
+      },
+    }),
+  );
 }
 
 async function sha256(value: string) {
@@ -54,9 +67,10 @@ export async function middleware(request: NextRequest) {
     const suppliedUsername = credentials.slice(0, separatorIndex);
     const suppliedPassword = credentials.slice(separatorIndex + 1);
     const expectedUsername =
-      process.env.APP_BASIC_AUTH_USERNAME || DEFAULT_USERNAME;
+      process.env.APP_BASIC_AUTH_USERNAME || FALLBACK_USERNAME;
     const expectedPasswordHash =
-      process.env.APP_BASIC_AUTH_PASSWORD_SHA256 || DEFAULT_PASSWORD_SHA256;
+      process.env.APP_BASIC_AUTH_PASSWORD_SHA256 ||
+      FALLBACK_PASSWORD_SHA256;
     const suppliedPasswordHash = await sha256(suppliedPassword);
 
     if (
@@ -66,17 +80,7 @@ export async function middleware(request: NextRequest) {
       return unauthorized();
     }
 
-    const response = NextResponse.next();
-    response.headers.set("Cache-Control", "private, no-store");
-    response.headers.set("Referrer-Policy", "same-origin");
-    response.headers.set("X-Content-Type-Options", "nosniff");
-    response.headers.set("X-Frame-Options", "DENY");
-    response.headers.set(
-      "Permissions-Policy",
-      "camera=(self), microphone=(), geolocation=()",
-    );
-
-    return response;
+    return securityHeaders(NextResponse.next());
   } catch {
     return unauthorized();
   }
@@ -84,6 +88,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js|icon|apple-icon|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };
