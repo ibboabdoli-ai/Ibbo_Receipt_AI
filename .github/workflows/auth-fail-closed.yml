@@ -1,0 +1,60 @@
+name: Receipt AI - isolated fail-closed auth tests
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - middleware.ts
+      - scripts/ci-auth-fail-closed.mjs
+      - .github/workflows/auth-fail-closed.yml
+  push:
+    branches:
+      - work/receipt-auth-fail-closed-20261018
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-auth:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CI: "true"
+      NEXT_TELEMETRY_DISABLED: "1"
+      OPENAI_API_KEY: ""
+      BLOB_READ_WRITE_TOKEN: ""
+      TURSO_DATABASE_URL: ""
+      TURSO_AUTH_TOKEN: ""
+      APP_BASIC_AUTH_USERNAME: ""
+      APP_BASIC_AUTH_PASSWORD_SHA256: ""
+      GH_TOKEN: ""
+      GITHUB_TOKEN: ""
+    steps:
+      - name: Checkout read-only and without persisted credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install dependencies without install scripts
+        run: npm install --no-package-lock --ignore-scripts --no-audit --no-fund
+      - name: TypeScript and lint
+        run: |
+          npm run typecheck
+          npm run lint
+      - name: Build with local-only dummy database
+        shell: bash
+        run: |
+          set -euo pipefail
+          export TURSO_DATABASE_URL="file:$RUNNER_TEMP/auth-ci-build.sqlite"
+          export TURSO_AUTH_TOKEN="CI_DUMMY_LOCAL"
+          npm run build
+      - name: Test fail-closed behavior on real local HTTP server
+        run: node scripts/ci-auth-fail-closed.mjs
+      - name: Confirm no tracked repository file changed
+        shell: bash
+        run: |
+          git diff --exit-code
+          test -z "$(git status --porcelain --untracked-files=no)"
