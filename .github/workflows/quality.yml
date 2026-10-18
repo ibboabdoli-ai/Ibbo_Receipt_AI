@@ -1,0 +1,54 @@
+name: Receipt AI - PR code quality
+
+on:
+  pull_request:
+  push:
+    branches:
+      - work/receipt-eslint9-flat-config
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CI: "true"
+      OPENAI_API_KEY: ""
+      TURSO_DATABASE_URL: ""
+      TURSO_AUTH_TOKEN: ""
+      BLOB_READ_WRITE_TOKEN: ""
+    steps:
+      - name: Checkout source without persisted credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Use required Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install dependencies without lifecycle scripts or lockfile changes
+        run: npm install --no-package-lock --ignore-scripts --no-audit --no-fund
+      - name: TypeScript
+        run: npm run typecheck
+      - name: ESLint
+        run: npm run lint
+      - name: Unit tests
+        run: npm test
+      - name: Build Next.js production bundle with isolated local-only credentials
+        shell: bash
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: |
+          set -euo pipefail
+          # Build-time only. Never use Production tokens or connect to remote services.
+          export TURSO_DATABASE_URL="file:${RUNNER_TEMP}/receipt-ai-build-ci.sqlite"
+          export TURSO_AUTH_TOKEN="ci-placeholder-not-a-real-token"
+          export OPENAI_API_KEY=""
+          export BLOB_READ_WRITE_TOKEN=""
+          npm run build
+      - name: Ensure repository stays unmodified
+        run: |
+          git diff --exit-code
+          test -z "$(git status --porcelain --untracked-files=no)"

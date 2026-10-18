@@ -211,12 +211,12 @@ export default async function ReceiptsPage({
           >
             Apply filters
           </button>
-          <a
+          <Link
             className="rounded-2xl border border-slate-200 px-5 py-3 text-center font-black text-slate-700"
             href="/receipts"
           >
             Reset
-          </a>
+          </Link>
         </div>
       </form>
 
