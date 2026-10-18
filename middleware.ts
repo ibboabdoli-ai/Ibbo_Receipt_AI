@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const FALLBACK_USERNAME = "ibbo";
-const FALLBACK_PASSWORD_SHA256 =
-  "9abff01bf5f0386c7eccd41fe9abaa14401a7135c5ffbfdf59937da5e13a7d7d";
 
 function securityHeaders(response: NextResponse) {
   response.headers.set("Cache-Control", "private, no-store");
@@ -50,8 +47,20 @@ function constantTimeEqual(left: string, right: string) {
 }
 
 export async function middleware(request: NextRequest) {
-  const authorization = request.headers.get("authorization");
+  const expectedUsername = process.env.APP_BASIC_AUTH_USERNAME;
+  const expectedPasswordHash = process.env.APP_BASIC_AUTH_PASSWORD_SHA256;
 
+  // Deny all requests when credentials are unset or malformed. Never fall
+  // back to credentials embedded in source code or a shared default.
+  if (
+    !expectedUsername?.trim() ||
+    !expectedPasswordHash ||
+    !/^[a-fA-F0-9]{64}$/.test(expectedPasswordHash)
+  ) {
+    return unauthorized();
+  }
+
+  const authorization = request.headers.get("authorization");
   if (!authorization?.startsWith("Basic ")) {
     return unauthorized();
   }
@@ -66,16 +75,11 @@ export async function middleware(request: NextRequest) {
 
     const suppliedUsername = credentials.slice(0, separatorIndex);
     const suppliedPassword = credentials.slice(separatorIndex + 1);
-    const expectedUsername =
-      process.env.APP_BASIC_AUTH_USERNAME || FALLBACK_USERNAME;
-    const expectedPasswordHash =
-      process.env.APP_BASIC_AUTH_PASSWORD_SHA256 ||
-      FALLBACK_PASSWORD_SHA256;
     const suppliedPasswordHash = await sha256(suppliedPassword);
 
     if (
       !constantTimeEqual(suppliedUsername, expectedUsername) ||
-      !constantTimeEqual(suppliedPasswordHash, expectedPasswordHash)
+      !constantTimeEqual(suppliedPasswordHash, expectedPasswordHash.toLowerCase())
     ) {
       return unauthorized();
     }
